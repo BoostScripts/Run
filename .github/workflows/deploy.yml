@@ -1,0 +1,65 @@
+name: deploy
+
+env:
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 6 */6 * *'
+  push:
+    branches:
+      - "master"
+    paths:
+      - ".github/workflows/deploy.yml"
+      - "*.sh"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: "vercel"
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: npm install --global vercel@latest
+
+      - name: Build for Vercel
+        env:
+          CLOUDFLARE: ${{ secrets.CLOUDFLARE }}
+          SHADOW: ${{ secrets.SHADOW }}
+          GH_TOKEN: ${{ secrets.SOURCE_REPOS_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          gh auth setup-git
+          git clone --depth 1 "$CLOUDFLARE" source-1
+          git clone --depth 1 "$SHADOW" source-2
+
+          rm -rf .vercel/output
+          mkdir -p .vercel/output/static
+          cp -p source-1/*.sh source-2/*.sh .vercel/output/static/
+
+          for f in .vercel/output/static/*.sh; do printf '%s\n' "${f##*/}"; done | jq -R . | jq -s '{
+            version: 3,
+            routes: [
+              { handle: "filesystem" },
+              { src: "/([^/.]+)", dest: "/$1.sh" }
+            ],
+            overrides: (map({
+              key: .,
+              value: { contentType: "text/plain; charset=utf-8" }
+            }) | from_entries)
+          }' > .vercel/output/config.json
+
+          echo "Prepared $(ls -1 .vercel/output/static | wc -l) files:"
+          jq -c '{version, routes, overrides: (.overrides | length)}' .vercel/output/config.json
+
+      - name: Deploy Project Artifacts to Vercel
+        run: vercel deploy --prebuilt --prod --token "$VERCEL_TOKEN"
