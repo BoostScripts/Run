@@ -14,7 +14,6 @@ on:
       - "master"
     paths:
       - ".github/workflows/deploy.yml"
-      - "*.sh"
 
 permissions:
   contents: read
@@ -28,19 +27,27 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - run: npm install --global vercel@latest
+        with:
+          persist-credentials: false
 
-      - name: Build for Vercel
+      - name: Checkout source scripts
         env:
           CLOUDFLARE: ${{ secrets.CLOUDFLARE }}
           SHADOW: ${{ secrets.SHADOW }}
           GH_TOKEN: ${{ secrets.SOURCE_REPOS_TOKEN }}
+          GIT_TERMINAL_PROMPT: "0"
         run: |
           set -euo pipefail
 
-          gh auth setup-git
-          git clone --depth 1 "$CLOUDFLARE" source-1
-          git clone --depth 1 "$SHADOW" source-2
+          gh auth setup-git --hostname github.com
+          git clone --quiet --depth 1 "$CLOUDFLARE" source-1 >/dev/null 2>&1
+          git clone --quiet --depth 1 "$SHADOW" source-2 >/dev/null 2>&1
+
+      - run: npm install --global vercel@latest
+
+      - name: Build for Vercel
+        run: |
+          set -euo pipefail
 
           rm -rf .vercel/output
           mkdir -p .vercel/output/static
